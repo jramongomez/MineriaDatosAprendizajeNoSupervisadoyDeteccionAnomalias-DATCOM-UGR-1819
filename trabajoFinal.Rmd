@@ -1,0 +1,282 @@
+---
+title: 'Reglas de asociación: Trabajo Final'
+author: "Juan Ramón Gómez Berzosa"
+date: "31/1/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introducción: Análisis y preprocesamiento dataset CAR
+
+En primer lugar vamos a hablar sobre el dataset que vamos a utilizar para realizar nuestra extracción de reglas de asociación. El dataset elegido está en la base de datos de Keel (original de UCI) y se llama "Car". Se trata de un conjunto de datos de clasificación el cual recoge características asociadas a coches con el fin de que sirvan para clasificarlos en función de una etiqueta llamada "acceptability." Esta etiqueta indica cual es nivel de aceptabilidad por los clientes del coche atendiendo a dichas características.
+
+En primer lugar leeremos el dataset y realizaremos un análisis previo de este, llevando a cabo un preprocesamiento adecuado para poder aplicar los algoritmos de reglas pertinentes para extraer la máxima información posible de este.
+
+
+```{r read}
+car <- read.csv("data/car.dat", comment.char="@", header = FALSE, na.strings = c("?", "NA", " "))
+names(car) <- c("Buying", "Maint", "Doors",
+                    "Persons", "Lug-Boot", "Safety",
+                   "Acceptability")
+str(car)
+
+```
+
+El dataset contiene un total de 1728 observaciones, teniendo disponibles 7 predictores y una variable de clasificación. Todos los datos son factores, por lo que nos vendrá bien posteriormente para tratarlo con los algoritmos de reglas de asociación.
+
+Las variables que intervienen en el proceso de decisión son:
+
+  - _Buying_: Precio de compra del coche.
+  - _Maint_: Precio de mantenimiento del coche.
+  - _Doors_: Número de puertas del coche.
+  - _Persons_: Número de personas que pueden viajar en el coche.
+  - _Lug-Boot_: Tamaño del maletero para equipaje.
+  - _Safety_: Nivel de seguridad estimado del coche.
+
+La variable _Accepatbility_ es un factor de 4 niveles dónde se indica, como hemos dicho antes, el nivel de aceptación que tiene un coche por sus compradores. El nivel de aceptabilidad de un coche viene determinado por su precio, precio de compra y de mantenimiento, y sus características técnicas, las de confort como número de puertas, personas y el tamaño del maletero, y el nivel de seguridad del coche.
+
+Cabe destacar que el conjunto de datos no tiene datos perdidos por lo que hemos visto en la página de keel, sin embargo lo comprobaremos.
+
+
+
+```{r nas}
+car[is.na(car),]
+```
+
+Una vez terminado esto vamos a mostrar un resumen del dataset.
+
+```{r summary}
+summary(car)
+```
+Podemos apredicar como el número para cadda variable, el número de observaciones de cada tipo está muy balanceado, de modo que por ejemplo tenemos el mismo número de observaciones para coches con 2 personas, 4 o más.
+
+Ahora vamos a pasar el dataset a transacciones para poder analizarlo mediante reglas de asociación.
+```{r transacciones}
+library(arules)
+carTrans <- as(car, "transactions") 
+carTrans
+summary(carTrans)
+```
+
+Como análisis inicial podemos observar que el item que más se repite sería la no acceptabilidad del coche, mientras que vemos que el número de personas por coche tiene la misma frecuencia para 2, 4 o más personas. También podemos corroborar que no hay valores perdidos, pues hemos obtendio un total de 1728 transacciones las cuales tienen 7 atributos. Ahora mostraremos los items más frecuentes, aunque antendiendo a lo anterior y al resumen inicial, podemos darnos cuenta que inicialmente van a tener una frecuencia muy similar.
+
+```{r pintar itemsetporfrec}
+
+itemFrequencyPlot(carTrans, support = 0.1, cex.names=0.8)
+
+```
+
+Como habíamos podido adelantar, vemos que todos los items pertenecientes a los distintos tipos de la misma variable tienen una distribución idéntica, teniendo como mínimo todos una frecuenta del 25%. Cabe destacar que el item más frecuente es la no aceptación del coche y menos frecuente la aceptación. Por tanto, es muy intuitivo pensar que el conjunto de datos es artificial ya que es muy improbable que recogiendo datos encontremos un conjunto de datos tan balanceado y con tanta equitatividad en sus clases, aunque en la página de keel encontramos que el conjunto de datos ha sido extraído del mundo real.
+
+Atendiendo a lo que hemos comentado anteriormente y esa distribución de items frecuentes, no podemos sacar muchas conclusiones sólo fijándonos en esto, ya que lo único que podríamos decir es que tenemos más coches que no son aceptados a coches que si que lo son porque es el único atributo donde encontramos una variabilidad de frecuencia dentro de sus clases. A continuación, vamos a sacar los itemsets más frecuentes que tengan una frecuencia mínima de 0.1, utilizando el algoritmo apriori para intentar extraer información más relevante.
+
+
+```{r extraer itemset}
+
+iCars = apriori(carTrans, parameter = list(support = 0.1, target="frequent"))
+iCars = sort(iCars, by="support") # Los ordenamos por el valor del soporte 
+inspect(head(iCars, n=10)) # Inspeccionamos los 10 primeros
+
+length(iCars)
+barplot(table(size(iCars)), xlab = "itemset size", ylab = "count")
+```
+
+El número de itemsets frecuentes que hemos obtenido es 86, lo cuál tiene lógica ya que al tener tanto soporte cada item normal se repetirán en muchas transacciones y por tanto es normal que salga un número tan bajo. También podemos ver los itemsets más frecuentes son los formados por 2 elementos, es decir, un único item en el antecedente y otro en el consecuente. Cabe destacar que también son muy frecuentes los de 1 único item, pero de estos no vamos a poder sacar a priori reglas de utilidad. Los que menos soporte tienen son los itemsets formados por 3 items y seguramente sean los más interesantes a la hora de extraer reglas de utilidad.
+
+No merece la pena ponernos a analizar itemsets cerrados o máximales ya que hemos encontrado muy pocos itemsets frecuentes de por sí, así que pasaremos a aplicar el algoritmo a priori para extraer las reglas, siendo los criterios de soporte y confianza del 10% y 80% respectivamente.
+
+
+```{r apriori}
+
+rules <- apriori(carTrans, parameter = list(support = 0.1, confidence = 0.8, minlen = 2))
+summary(rules)
+```
+
+Como era de esperar, el número de reglas que hemos obtenido ha sido muy bajo, 15 para ser exactos, siendo la gran mayoría de 3 items, como habíamos anticipado antes. Podemos observar que las reglas tienen un soporte bajo, teniendo como máximo un soporte del 33%. En cuanto a confianza de media tienen una confianza del 97% y unos valores de lift todos por encima de 1.
+
+A continuación observaremos las reglas.
+
+```{r verReglas2}
+inspect(head(sort(rules, by = "support", decreasing = TRUE), n = 15))
+
+```
+
+En general podemos ver como todas las reglas tienen en su consecuente el item de no ser aceptado, lo cual tiene lógica ya que era el item que más se repetía el dataset. Encontramos reglas muy lógicas como que los coches que tienen una baja seguridad o son de dos plazas o  son muy caros de adquirir o mantener no tienen aceptación por parte de los clientes.
+
+En principio no eliminaremos las reglas redudantes ya que tenemos muy pocas, así que procedremos a analizarlas.
+
+```{r visualizar reglas}
+library(arulesViz)
+plot(rules)
+
+```
+Por lógica, deberíamos de fijarnos en las reglas que están en el intervalo del 20-35%, ya que tienen un soporte y confianza aceptables, sin ser un soporte muy bajo para ser reglas inútiles ni un soporte muy alto para ser reglas poco interesantes. Sin embargo, las reglas que entran en este intervalo son básicamente las reglas que hemos comentado anteriormente y aunque tienen lógica, son demasiado simples como para ser de gran utilidad.
+
+```{r graph1}
+rulesSubset = subset(rules, subset = lift > 1.1 & support > 0.2 ) 
+rulesPrunedSort = inspect(sort(rulesSubset, by = "support"))
+plot(rulesSubset, method="graph")
+
+```
+
+Podemos ver que los coches con seguridad baja nunca tienen una aceptación, en ninguno de los casos. Esto también sucede con los coches de dos plazas como es lógico, ya que las personas suelen comprar sus coches para viajar y por norma general acaban teniendo una familia por lo que no pueden ir en un coche de 2 plazas. Estos coches son más pensados para temas específicos como la fórmula 1, rallys, coches de lujo de 2 plazas... etc, pero estos datos no son tenidos en cuenta ya que se tratan de excepciones y es lógico que no aparezcan en la base de datos.
+
+Sin embargo, lo que si podemos ver es que los coches los cuales tienen un alto valor para ser adquiridos o mantenidos aunque tienen una alta confianza de que suelen ser coches no aceptados, hay casos en los que no se cumple. Esto puede deberse a las personas que están interesadas en coches de alta gama como son del tipo porsche, mercedes, audi... donde el precio de los coches es muy alto y normalmente suelen ser caros mantenerlos (debido a que son caras las piezas si se averían, la gasolina que consumen... etc) pero la gente los adquiere porque están interesados en este tipo de coches por lo que suelen tener una buena aceptacción.
+
+También hemos visto en las reglas anteriores que factores como el tamaño del maletero influían a la hora de no aceptar un coche, sin embargo eran factores secundarios y normalmente todo era condicionado por el tema de la seguridad, número de personas y el precio de compra y mantenimiento, siendo los dos primeros los principales temas buscados a la hora de la aceptación de un coche.
+
+
+Sin embargo, lo que más podemos destacar es que de todas las reglas que hemos obtenido hasta ahora, ninguna nos lleva a una situación en la que la aceptación del coche sea al menos baja. Por tanto, vamos a repetir este análisis pero escogiendo las observaciones del conjunto de datos referentes a coches que si son aceptados.
+
+```{r reglas aceptabilidad}
+
+carAceptabilidad = car[car$Acceptability!="unacc",]
+
+summary(carAceptabilidad)
+
+
+
+```
+
+```{r transactions acc}
+carAceptabilidadTrans <- as(carAceptabilidad, "transactions") 
+
+summary(carAceptabilidadTrans)
+```
+
+```{r itemsets acc }
+iCarAceptabilidad = apriori(carAceptabilidadTrans, parameter = list(support = 0.1, target="frequent"))
+iCarAceptabilidad = sort(iCarAceptabilidad, by="support") # Los ordenamos por el valor del soporte 
+inspect(head(iCarAceptabilidad, n=10)) # Inspeccionamos los 10 primeros
+
+length(iCarAceptabilidad)
+barplot(table(size(iCarAceptabilidad)), xlab = "itemset size", ylab = "count")
+```
+
+Podemos observar como el número de itemsets frecuentes ahora es mayor a cuando teníamos en cuenta las observaciones de la no aceptabilidad de los coches, ahora veremos si podemos extraer reglas relevantes.
+```{r aprioriAceptabilidad}
+
+rulesAceptabilidad <- apriori(carAceptabilidadTrans, parameter = list(support = 0.1, confidence = 0.8, minlen = 2))
+summary(rulesAceptabilidad)
+```
+
+Hemos obtenido un total de 18 reglas, siendo la mayoría (11 en particular) de 3 items de tamaño y el resto de 2 items. El soporte máximo está en un 34% y tenemos valores de lift todos por encima de 1, mientras que la confianza de media no es muy alta pero tiene especial sentido al haber hecho esto sobre el conjunto de datos eliminando las observaciones referentes a la no aceptabilidad para centrarnos en las restantes. De estas 18 reglas nos vamos a centrar en aquellas que no son redundantes.
+
+
+```{r inspectReglas acc}
+rulesSorted = sort(rulesAceptabilidad, by = "confidence")
+subsetMatrix <- is.subset(rulesSorted, rulesSorted) #ponemos en una matriz todas las reglas contra otras
+subsetMatrix[lower.tri(subsetMatrix, diag=TRUE)] <- FALSE #eliminamos la diagonal y la parte inferior de la matriz ya que es simétrico
+redundant <- colSums(subsetMatrix, na.rm=TRUE) >= 1 # sumamos las columnas y aquellas que nos den un valor mayor o igual que 1 es que son redundantes  así que las eliminaremos
+rulesPruned <- rulesSorted[!redundant] # remove redundant rules
+length(rulesPruned)
+
+inspect(head(sort(rulesPruned, by ="support"), n = 15))
+
+```
+
+Al eliminar reglas redundantes hemos disminuido la cantidad a apenas unas 9 reglas. De estas reglas las cuales nos hemos centrado solo en aquellas transacciones donde las personas han aceptado los coches (ya sea con un nivel más alto o más bajo de aceptación), podemos ver que se da que sólo si la aceptación ha sido excelente tenemos una seguridad de coche alta, por lo tanto podemos ver que la seguridad es la prioridad. 
+
+Las demás reglas nos dan condiciones que se dan para la acepación de un coche, sin embargo es el nivel de aceptación más bajo y por tanto está en los umbrales de las reglas que hemos dado anteriormente para los coches no aceptados. Podemos ver por tanto que coches con una seguridad media son normalmente aceptados, aunque con bastante frecuencia. Podemos ver que los coches que son caros tanto de comprar o mantener son normalmente aceptados, sin embargo los que lo son en exceso ya no se suele dar con tanta asiduidad, suponiendo que en este caso entrarían las personas con mayor poder adquisitivo o más dispuestas a gastarse tanto dinero en un vehículo.
+
+También podemos destacar la regla que dice que normalmente si el maletero es pequeño, el coche es aceptado, aunque con un nivel de aceptación muy bajo. Al realizar una búsqueda de reglas bajando los niveles de soporte al 5% y de confianza al 70%, hemos encontrado una regla con alto cumplimiento en este grupo. Esta regla trata de que, dentro de los coches que son aceptados, los coches con maletero pequeño son altamente seguros.
+
+En función a esto, hemos 
+
+
+# Análisis de ítems negados
+
+El análisis que hemos hecho hasta ahora nos ha servido para reafirmar información que intuíamos aunque sobre todo para destacar las dos principales variables que influyen a la hora de la aceptación de un coche, por encima del precio del vehículo o de mantenerlo: 
+  - Número de personas.
+  - Seguridad.
+
+Sin embargo, aunque esta información es interesante ahora nos vamos a centrar en intentar profundizar un poco más en esta línea. Vamos a proceder a realizar un análisis de ítems negados para ver si podemos encontrar otras reglas que no habían sido detectadas anteriormente. Como anteriormente hemos visto que la variable de la capacidad del maletero estaba presente en las reglas tanto teniendo en cuenta los coches no aceptados como solamente teniendo en cuenta los aceptados, vamos a probar con ella.
+
+```{r itemsNegados}
+luggBootSmall = as.factor(ifelse(car$`Lug-Boot` == "small" ,TRUE, FALSE))
+luggBootMed =  as.factor(ifelse(car$`Lug-Boot` == "med" ,TRUE, FALSE))
+luggBootBig = as.factor(ifelse(car$`Lug-Boot` == "big" ,TRUE, FALSE))
+
+carNegados = data.frame(car[,1:4], luggBootSmall, luggBootMed,
+                        luggBootBig,car[6:7])
+
+summary(carNegados)
+```
+
+
+Ahora vamos a pasar el dataset a transacciones para poder analizarlo mediante reglas de asociación.
+```{r transaccionesNegativas}
+library(arules)
+carTransNegados <- as(carNegados, "transactions") 
+carTransNegados
+summary(carTransNegados)
+```
+Ahora podemos obervar que tenemos otros items que son frecuentes debido a los negados que hemos obtenido, vamos a obtener ahora los itemsets frecuentes.
+
+
+```{r extraer itemsetNegados}
+
+iCarsNegados = apriori(carTransNegados, parameter = list(support = 0.1, target="frequent"))
+iCarsNegados = sort(iCarsNegados, by="support") # Los ordenamos por el valor del soporte 
+inspect(head(iCarsNegados, n=10)) # Inspeccionamos los 10 primeros
+
+length(iCarsNegados)
+barplot(table(size(iCarsNegados)), xlab = "itemset size", ylab = "count")
+```
+
+
+Como podemos ver la cantidad de itemsets frecuentes que se han generado el triple a la que teníamos inicialmente, introduciéndose itemsets frecuentes de 4 y 5 items y siendo los más más frecuentes los de 2 y 3 items. Vamos a generar ahora las reglas.
+
+```{r aprioriNegados}
+
+rulesNegadas <- apriori(carTransNegados, parameter = list(support = 0.1, confidence = 0.8, minlen = 2))
+summary(rulesNegadas)
+```
+
+Como es lógico también, el número de reglas ha crecido, teniendo un total de 200. Observaremos las primeras por orden de soporte.
+
+```{r verReglas1}
+inspect(head(sort(rulesNegadas, by = "support", decreasing = TRUE), n = 15))
+
+```
+
+Vamos a proceder a eliminar en primer lugar las redundantes.
+
+```{r eliminar reglas redundantes}
+
+rulesSorted = sort(rulesNegadas, by = "confidence")
+subsetMatrix <- is.subset(rulesSorted, rulesSorted) #ponemos en una matriz todas las reglas contra otras
+subsetMatrix[lower.tri(subsetMatrix, diag=TRUE)] <- FALSE #eliminamos la diagonal y la parte inferior de la matriz ya que es simétrico
+redundant <- colSums(subsetMatrix, na.rm=TRUE) >= 1 # sumamos las columnas y aquellas que nos den un valor mayor o igual que 1 es que son redundantes  así que las eliminaremos
+rulesPruned <- rulesSorted[!redundant] # remove redundant rules
+length(rulesPruned)
+
+inspect(head(rulesPruned, n = 15))
+
+
+```
+Podemos ver como tenemos reglas que no son de utilidad como: si tenemos un tamaño de maletero grande no tenemos un tamaño de maletero pequeño, así que procederemos a eliminar a mano este tipo de reglas inútiles.
+```{r}
+
+rulesPrunedss = rulesPruned[-c(2,3,5,6,7,8)]                      
+inspect(head(sort(rulesPrunedss, by="support"), n = 15))
+
+```
+
+De las 9 reglas que hemos obtenido, las 4 primeras son las mismas que obtuvimos en el análisis anterior. Como nuevas reglas podemos destacar con más soporte y confianza que normalmente los coches que son caros y no tienen el maletero grande no son aceptados, pasando esto también pero con los coches con un maletero mediano y con un poco menos de soporte y confianza. También podemos comentar la última regla la cual nos dice que normalmente los coches que tienen dos puertas y no tienen el maletero grande tampoco son aceptados.
+
+# Análisis por grupos de reglas
+
+El análisis por grupos de reglas en este caso puede ser un poco complicado por lo que hemos visto, ya que hemos obtenido un número bajo de reglas y por tanto no hay mucho en lo que comparar.
+
+De entre lo que hemos visto anteriormente podemos destacar las dos reglas lógicas que nos afirmaban que los coches que son muy caros de adquirir o mantener son no aceptados por normal general, estas reglas tenían una confianza cercana al 83%. Sin embago, cuando hemos obtenido las reglas correspondientes al conjunto de datos pero descartando los coches no aceptados y atendiendo únicamente a los coches acpetados en sus diferentes reglas, hemos obtenido otras dos reglas que se corresponderían con las excepciones de las dos comentadas anteriormente. Hemos obtenido dos reglas que nos indicaban que si los coches eran muy caros de adquirir o mantener entonces los coches eran aceptados, aunque con el nivel más bajo de aceptación, las cuales tenían una confianza del 100% respecto a los datos segmentados.
+
+Por tanto, podemos afirmar que estos casos son los que restaban del 17% restante de confianza de las primeras dos reglas y desde nuestro punto de vista se pueden corresponder con los casos que hemos comentado antes de aquellas personas que están interesadas en coches de alta gama bien por su poder de adquisición o bien por gusto propio.
+
+
+Podemos observar como el número de itemsets frecuentes ahora es mayor a cuando teníamos en cuenta las observaciones de la no aceptabilidad de los coches, ahora veremos si podemos extraer reglas relevantes.
+
+
